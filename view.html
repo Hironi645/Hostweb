@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Spin Wheel - Display</title>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;600;700;800;900&display=swap" rel="stylesheet">
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+<style>
+  :root {
+    --red-primary: #FF2D55;
+    --red-deep: #C0002A;
+    --red-light: #FF6B87;
+    --red-glow: rgba(255, 45, 85, 0.5);
+    --glass-bg: rgba(255, 255, 255, 0.08);
+    --glass-border: rgba(255, 255, 255, 0.18);
+    --glass-shine: rgba(255, 255, 255, 0.25);
+    --text-primary: #ffffff;
+    --text-secondary: rgba(255,255,255,0.7);
+    --text-muted: rgba(255,255,255,0.4);
+    --bg-dark: #0a0005;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  html, body {
+    font-family: 'Nunito', sans-serif;
+    background: var(--bg-dark);
+    color: var(--text-primary);
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* ── BACKGROUND ── */
+  .bg-orbs {
+    position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none;
+  }
+  .orb {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(80px);
+    opacity: 0.6;
+    animation: drift 12s ease-in-out infinite alternate;
+  }
+  .orb1 { width: 60vw; height: 60vw; background: radial-gradient(circle, #ff0040 0%, transparent 70%); top: -10vw; left: -10vw; }
+  .orb2 { width: 50vw; height: 50vw; background: radial-gradient(circle, #cc0033 0%, transparent 70%); bottom: -10vw; right: -10vw; animation-delay: -4s; }
+  .orb3 { width: 40vw; height: 40vw; background: radial-gradient(circle, #ff4466 0%, transparent 70%); top: 50%; left: 50%; transform: translate(-50%,-50%); animation-delay: -8s; }
+  @keyframes drift {
+    0% { transform: translate(0,0) scale(1); }
+    100% { transform: translate(40px, 30px) scale(1.1); }
+  }
+
+  /* ── CONNECTION STATUS ── */
+  .connection-status {
+    position: fixed;
+    top: 15px;
+    right: 15px;
+    padding: 8px 16px;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    backdrop-filter: blur(10px);
+    transition: all 0.3s;
+  }
+  .connection-status.connected { color: #4ade80; border-color: rgba(74, 222, 128, 0.3); }
+  .connection-status.disconnected { color: #f87171; border-color: rgba(248, 113, 113, 0.3); }
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    animation: pulse 1.5s infinite;
+  }
+  .connection-status.connected .status-dot { background: #4ade80; }
+  .connection-status.disconnected .status-dot { background: #f87171; }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+
+  /* ── RUNNING TEXT ── */
+  .running-text-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    background: linear-gradient(90deg, var(--red-deep), var(--red-primary));
+    padding: 12px 0;
+    z-index: 50;
+    overflow: hidden;
+    display: none;
+  }
+  .running-text-container.active { display: block; }
+  .running-text {
+    white-space: nowrap;
+    animation: scrollText 15s linear infinite;
+    font-weight: 700;
+    font-size: 16px;
+    color: white;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+  }
+  @keyframes scrollText {
+    0% { transform: translateX(100vw); }
+    100% { transform: translateX(-100%); }
+  }
+
+  /* ── MAIN CONTAINER ── */
+  .main-container {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 20px;
+    transition: padding-top 0.3s;
+  }
+
+  /* ── TITLE ── */
+  .title-section {
+    text-align: center;
+    margin-bottom: 20px;
+    padding: 20px;
+    background: var(--glass-bg);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--glass-border);
+    border-radius: 24px;
+    display: none;
+    animation: fadeIn 0.5s ease;
+  }
+  .title-section.active { display: block; }
+  .main-title {
+    font-size: clamp(28px, 6vw, 56px);
+    font-weight: 900;
+    background: linear-gradient(135deg, #fff 0%, var(--red-light) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    text-shadow: 0 0 40px var(--red-glow);
+  }
+
+  /* ── CONTENT AREA ── */
+  .content-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 25px;
+  }
+
+  /* ── WHEEL SECTION ── */
+  .wheel-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 25px;
+    width: 100%;
+    animation: fadeIn 0.6s ease;
+  }
+
+  .wheel-container {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .wheel-pointer {
+    font-size: 45px;
+    filter: drop-shadow(0 0 12px rgba(255,45,85,0.9));
+    margin-bottom: -12px;
+    z-index: 10;
+    animation: bounce 1s ease infinite alternate;
+  }
+  @keyframes bounce {
+    from { transform: translateY(0); }
+    to { transform: translateY(-5px); }
+  }
+
+  canvas#wheelCanvas {
+    border-radius: 50%;
+    box-shadow: 0 0 70px rgba(255,45,85,0.5), 0 0 120px rgba(255,45,85,0.2);
+    max-width: 85vw;
+    max-height: 55vh;
+  }
+
+  .wheel-result {
+    font-size: clamp(24px, 5vw, 42px);
+    font-weight: 800;
+    color: white;
+    background: linear-gradient(135deg, rgba(255,45,85,0.25), rgba(192,0,42,0.15));
+    border: 2px solid rgba(255,45,85,0.5);
+    border-radius: 24px;
+    padding: 20px 50px;
+    min-height: 70px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    backdrop-filter: blur(15px);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    transition: all 0.3s;
+  }
+  .wheel-result.winner {
+    animation: winnerPulse 0.8s ease;
+    border-color: var(--red-primary);
+    box-shadow: 0 0 40px var(--red-glow);
+  }
+  @keyframes winnerPulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
+  }
+
+  /* ── MEDIA DISPLAY ── */
+  .media-display {
+    position: fixed;
+    z-index: 60;
+    display: none;
+    border-radius: 24px;
+    overflow: hidden;
+    box-shadow: 0 15px 50px rgba(0,0,0,0.6), 0 0 50px var(--red-glow);
+    border: 2px solid var(--glass-border);
+    background: var(--glass-bg);
+    backdrop-filter: blur(15px);
+    animation: mediaIn 0.4s cubic-bezier(.34,1.56,.64,1);
+  }
+  .media-display.active { display: block; }
+  @keyframes mediaIn {
+    from { opacity: 0; transform: translate(-50%, -50%) scale(0.7); }
+    to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  }
+  .media-display img, .media-display video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+  }
+
+  /* ── POPUP MESSAGE ── */
+  .popup-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    backdrop-filter: blur(15px);
+    z-index: 200;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 30px;
+    animation: fadeIn 0.3s ease;
+  }
+  .popup-overlay.active { display: flex; }
+  .popup-message {
+    background: linear-gradient(135deg, var(--glass-bg), rgba(255,45,85,0.15));
+    border: 2px solid var(--glass-border);
+    border-radius: 36px;
+    padding: 50px;
+    max-width: 85vw;
+    max-height: 80vh;
+    overflow: auto;
+    text-align: center;
+    animation: popupIn 0.5s cubic-bezier(.34,1.56,.64,1);
+    box-shadow: 0 25px 70px rgba(0,0,0,0.6), 0 0 50px var(--red-glow);
+  }
+  @keyframes popupIn {
+    from { opacity: 0; transform: scale(0.6) translateY(40px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
+  }
+  .popup-title {
+    font-size: clamp(28px, 6vw, 52px);
+    font-weight: 900;
+    color: var(--red-light);
+    margin-bottom: 25px;
+    text-shadow: 0 0 30px var(--red-glow);
+  }
+  .popup-text {
+    font-size: clamp(20px, 4vw, 36px);
+    font-weight: 600;
+    color: white;
+    line-height: 1.6;
+  }
+
+  /* ── FULLSCREEN BUTTON ── */
+  .fullscreen-btn {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    width: 50px;
+    height: 50px;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 50%;
+    color: white;
+    font-size: 22px;
+    cursor: pointer;
+    z-index: 100;
+    backdrop-filter: blur(10px);
+    transition: all 0.3s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .fullscreen-btn:hover { 
+    background: rgba(255,45,85,0.3); 
+    border-color: var(--red-primary);
+    transform: scale(1.1);
+  }
+
+  /* ── PORTRAIT MODE ── */
+  @media (orientation: portrait) {
+    .main-container {
+      padding-top: 60px;
+    }
+    .running-text-container.active ~ .main-container {
+      padding-top: 100px;
+    }
+    canvas#wheelCanvas {
+      width: 85vw;
+      height: 85vw;
+      max-width: 450px;
+      max-height: 450px;
+    }
+    .fullscreen-btn {
+      bottom: 20px;
+      left: 20px;
+    }
+  }
+
+  /* ── LANDSCAPE MODE ── */
+  @media (orientation: landscape) {
+    .main-container {
+      flex-direction: row;
+      padding: 20px 40px;
+      gap: 30px;
+    }
+    .running-text-container.active ~ .main-container {
+      padding-top: 60px;
+    }
+    .title-section {
+      margin-bottom: 0;
+      writing-mode: vertical-rl;
+      text-orientation: mixed;
+      transform: rotate(180deg);
+      max-width: 100px;
+      padding: 30px 15px;
+    }
+    .main-title {
+      writing-mode: vertical-rl;
+      text-orientation: mixed;
+    }
+    .wheel-section {
+      flex-direction: row;
+      gap: 40px;
+    }
+    .wheel-container {
+      order: 2;
+    }
+    .wheel-result {
+      order: 1;
+      writing-mode: vertical-rl;
+      text-orientation: mixed;
+      transform: rotate(180deg);
+      padding: 50px 20px;
+      min-width: 100px;
+      min-height: auto;
+    }
+    canvas#wheelCanvas {
+      max-width: 60vh;
+      max-height: 75vh;
+    }
+    .fullscreen-btn {
+      bottom: 25px;
+      left: 40px;
+    }
+  }
+
+  /* ── ANIMATIONS ── */
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Connection Status -->
+<div class="connection-status disconnected" id="connectionStatus">
+  <span class="status-dot"></span>
+  <span id="statusText">Menghubungkan...</span>
+</div>
+
+<!-- Running Text -->
+<div class="running-text-container" id="runningTextContainer">
+  <div class="running-text" id="runningText"></div>
+</div>
+
+<!-- Media Display -->
+<div class="media-display" id="mediaDisplay">
+  <div id="mediaContent"></div>
+</div>
+
+<!-- Popup Message -->
+<div class="popup-overlay" id="popupOverlay">
+  <div class="popup-message">
+    <div class="popup-title" id="popupTitle">🎉 Pesan</div>
+    <div class="popup-text" id="popupText"></div>
+  </div>
+</div>
+
+<!-- Main Container -->
+<div class="main-container">
+  
+  <!-- Title Section -->
+  <div class="title-section" id="titleSection">
+    <h1 class="main-title" id="mainTitle">Spin Wheel</h1>
+  </div>
+
+  <!-- Content Area -->
+  <div class="content-area">
+    <div class="wheel-section">
+      <div class="wheel-container">
+        <div class="wheel-pointer">▼</div>
+        <canvas id="wheelCanvas" width="450" height="450"></canvas>
+      </div>
+      <div class="wheel-result" id="wheelResult">Siap untuk diputar!</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Fullscreen Button -->
+<button class="fullscreen-btn" onclick="toggleFullscreen()" title="Fullscreen (F)">⛶</button>
+
+<script>
+// ──────────────────────────────────────────
+// FIREBASE CONFIGURATION
+// ──────────────────────────────────────────
+const firebaseConfig = {
+  databaseURL: "https://spin-c7801-default-rtdb.asia-southeast1.firebasedatabase.app/"
+};
+
+// Initialize Firebase
+firebase.initializeApp(firebaseConfig);
+const database = firebase.database();
+
+// ──────────────────────────────────────────
+// STATE
+// ──────────────────────────────────────────
+let names = ['Budi', 'Siti', 'Ahmad', 'Dewi', 'Rizki'];
+let wheelSpinning = false;
+let wheelAngle = 0;
+let wheelAnimId = null;
+let spinSpeedMultiplier = 3;
+
+// ──────────────────────────────────────────
+// INITIALIZATION
+// ──────────────────────────────────────────
+function init() {
+  // Connection status
+  database.ref('.info/connected').on('value', (snapshot) => {
+    const statusEl = document.getElementById('connectionStatus');
+    const statusText = document.getElementById('statusText');
+    if (snapshot.val() === true) {
+      statusEl.classList.remove('disconnected');
+      statusEl.classList.add('connected');
+      statusText.textContent = 'Online';
+      setTimeout(() => {
+        statusEl.style.opacity = '0.3';
+      }, 2000);
+    } else {
+      statusEl.classList.remove('connected');
+      statusEl.classList.add('disconnected');
+      statusText.textContent = 'Offline';
+      statusEl.style.opacity = '1';
+    }
+  });
+
+  // Listen for commands
+  database.ref('commands').on('value', (snapshot) => {
+    const data = snapshot.val();
+    if (data) {
+      handleCommand(data);
+    }
+  });
+
+  // Listen for names
+  database.ref('names').on('value', (snapshot) => {
+    const data = snapshot.val();
+    if (data && Array.isArray(data)) {
+      names = data;
+      drawWheel();
+    }
+  });
+
+  // Listen for title
+  database.ref('settings/title').on('value', (snapshot) => {
+    const data = snapshot.val();
+    if (data) {
+      document.getElementById('mainTitle').textContent = data.text || 'Spin Wheel';
+      document.getElementById('titleSection').classList.toggle('active', data.visible);
+    }
+  });
+
+  // Listen for running text
+  database.ref('settings/runningText').on('value', (snapshot) => {
+    const data = snapshot.val();
+    if (data) {
+      document.getElementById('runningText').textContent = data.text || '';
+      document.getElementById('runningTextContainer').classList.toggle('active', data.active);
+      if (data.speed) {
+        document.getElementById('runningText').style.animationDuration = (35 - data.speed) + 's';
+      }
+    }
+  });
+
+  // Listen for popup
+  database.ref('settings/popup').on('value', (snapshot) => {
+    const data = snapshot.val();
+    if (data) {
+      if (data.show) {
+        showPopup(data.title, data.message);
+      } else {
+        closePopup();
+      }
+    }
+  });
+
+  // Listen for media
+  database.ref('settings/media').on('value', (snapshot) => {
+    const data = snapshot.val();
+    if (data) {
+      if (data.type === 'image' && data.url) {
+        displayImage(data.url, data.width, data.height);
+      } else if (data.type === 'video' && data.url) {
+        displayVideo(data.url, data.width, data.height);
+      } else if (data.type === 'none') {
+        closeMedia();
+      }
+    }
+  });
+
+  // Listen for wheel settings
+  database.ref('settings/wheel').on('value', (snapshot) => {
+    const data = snapshot.val();
+    if (data && data.speed) {
+      spinSpeedMultiplier = data.speed;
+    }
+  });
+
+  drawWheel();
+}
+
+// ──────────────────────────────────────────
+// COMMAND HANDLER
+// ──────────────────────────────────────────
+function handleCommand(data) {
+  const command = data.command;
+  
+  switch(command) {
+    case 'spin':
+      if (!wheelSpinning) spinWheel();
+      break;
+    case 'reset':
+      resetWheel();
+      break;
+    case 'closePopup':
+      closePopup();
+      break;
+    case 'closeMedia':
+      closeMedia();
+      break;
+  }
+}
+
+// ──────────────────────────────────────────
+// POPUP FUNCTIONS
+// ──────────────────────────────────────────
+function showPopup(title, message) {
+  document.getElementById('popupTitle').textContent = title || '🎉 Pesan';
+  document.getElementById('popupText').textContent = message || '';
+  document.getElementById('popupOverlay').classList.add('active');
+}
+
+function closePopup() {
+  document.getElementById('popupOverlay').classList.remove('active');
+}
+
+// ──────────────────────────────────────────
+// MEDIA FUNCTIONS
+// ──────────────────────────────────────────
+function displayImage(url, width, height) {
+  const display = document.getElementById('mediaDisplay');
+  const content = document.getElementById('mediaContent');
+  
+  content.innerHTML = `<img src="${url}" alt="Media" onerror="this.onerror=null; this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22><rect fill=%22%23333%22 width=%22400%22 height=%22300%22/><text fill=%22%23fff%22 x=%2250%%22 y=%2250%%22 text-anchor=%22middle%22>Gambar tidak ditemukan</text></svg>';">`;
+  
+  display.style.width = (width || 50) + '%';
+  display.style.height = (height || 50) + '%';
+  display.style.top = '50%';
+  display.style.left = '50%';
+  display.classList.add('active');
+}
+
+function displayVideo(url, width, height) {
+  const display = document.getElementById('mediaDisplay');
+  const content = document.getElementById('mediaContent');
+  
+  content.innerHTML = `<video src="${url}" controls autoplay loop onerror="this.parentElement.innerHTML='<div style=\'padding:50px;text-align:center;color:white;font-size:18px;\'>⚠️ Video tidak dapat diputar</div>'"></video>`;
+  
+  display.style.width = (width || 50) + '%';
+  display.style.height = (height || 50) + '%';
+  display.style.top = '50%';
+  display.style.left = '50%';
+  display.classList.add('active');
+}
+
+function closeMedia() {
+  document.getElementById('mediaDisplay').classList.remove('active');
+  document.getElementById('mediaContent').innerHTML = '';
+}
+
+// ──────────────────────────────────────────
+// WHEEL FUNCTIONS
+// ──────────────────────────────────────────
+const WHEEL_COLORS = [
+  ['#FF2D55','#C0002A'],
+  ['#FF6B87','#E0003A'],
+  ['#FF0044','#800020'],
+  ['#FF4466','#990033'],
+  ['#FF1A40','#AA0025'],
+  ['#FF3355','#D4002E'],
+  ['#FF5577','#B80030'],
+  ['#FF2244','#CC0033'],
+];
+
+function drawWheel() {
+  const canvas = document.getElementById('wheelCanvas');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const cx = W / 2, cy = H / 2;
+  const r = Math.min(W, H) / 2 - 12;
+
+  ctx.clearRect(0, 0, W, H);
+
+  const list = names.length ? names : ['Tambahkan', 'nama', 'dulu!'];
+  const n = list.length;
+  const arc = (2 * Math.PI) / n;
+
+  for (let i = 0; i < n; i++) {
+    const start = wheelAngle + i * arc;
+    const end = start + arc;
+    const [c1, c2] = WHEEL_COLORS[i % WHEEL_COLORS.length];
+
+    // slice
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+    grad.addColorStop(0, c1 + 'cc');
+    grad.addColorStop(1, c2);
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, r, start, end);
+    ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
+    // text
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(start + arc / 2);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = 'rgba(255,255,255,0.98)';
+    ctx.font = `bold ${Math.min(18, Math.max(11, 220 / n))}px Nunito`;
+    ctx.shadowColor = 'rgba(0,0,0,0.7)';
+    ctx.shadowBlur = 5;
+    const label = list[i].length > 15 ? list[i].slice(0, 14) + '…' : list[i];
+    ctx.fillText(label, r - 14, 5);
+    ctx.restore();
+  }
+
+  // center circle
+  const cGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 40);
+  cGrad.addColorStop(0, '#fff');
+  cGrad.addColorStop(0.7, '#FF2D55');
+  cGrad.addColorStop(1, '#C0002A');
+  ctx.beginPath();
+  ctx.arc(cx, cy, 32, 0, 2 * Math.PI);
+  ctx.fillStyle = cGrad;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+  ctx.lineWidth = 3;
+  ctx.stroke();
+
+  // center icon
+  ctx.font = 'bold 20px serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#fff';
+  ctx.shadowColor = 'rgba(0,0,0,0.5)';
+  ctx.shadowBlur = 4;
+  ctx.fillText('🎲', cx, cy);
+}
+
+function spinWheel() {
+  if (wheelSpinning) return;
+  if (!names.length) {
+    showPopup('⚠️ Perhatian', 'Belum ada nama di daftar!');
+    return;
+  }
+
+  wheelSpinning = true;
+  const resultEl = document.getElementById('wheelResult');
+  resultEl.textContent = '🌀 Berputar...';
+  resultEl.classList.remove('winner');
+
+  const baseRotations = 6 + Math.floor(Math.random() * 5);
+  const totalRot = (Math.PI * 2 * baseRotations) + Math.random() * Math.PI * 2;
+  const duration = (7000 - (spinSpeedMultiplier * 1000)) + Math.random() * 1000;
+  const start = performance.now();
+  const startAngle = wheelAngle;
+
+  function easeOut(t) { return 1 - Math.pow(1 - t, 4); }
+
+  function frame(now) {
+    const elapsed = now - start;
+    const progress = Math.min(elapsed / duration, 1);
+    wheelAngle = startAngle + totalRot * easeOut(progress);
+    drawWheel();
+
+    if (progress < 1) {
+      wheelAnimId = requestAnimationFrame(frame);
+    } else {
+      wheelSpinning = false;
+
+      // Calculate winner
+      const n = names.length;
+      const arc = (2 * Math.PI) / n;
+      const normalized = (((-wheelAngle - Math.PI / 2) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+      const idx = Math.floor(normalized / arc) % n;
+      const winner = names[idx];
+      
+      resultEl.innerHTML = `🏆 <span style="color: var(--red-light); text-shadow: 0 0 20px var(--red-glow);">${winner}</span>`;
+      resultEl.classList.add('winner');
+      
+      // Save winner
+      database.ref('lastWinner').set({
+        name: winner,
+        timestamp: Date.now()
+      });
+    }
+  }
+
+  requestAnimationFrame(frame);
+}
+
+function resetWheel() {
+  wheelAngle = 0;
+  drawWheel();
+  const resultEl = document.getElementById('wheelResult');
+  resultEl.textContent = 'Siap untuk diputar!';
+  resultEl.classList.remove('winner');
+  wheelSpinning = false;
+  if (wheelAnimId) cancelAnimationFrame(wheelAnimId);
+}
+
+// ──────────────────────────────────────────
+// FULLSCREEN FUNCTION
+// ──────────────────────────────────────────
+function toggleFullscreen() {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(err => {
+      console.log('Fullscreen error:', err);
+    });
+  } else {
+    document.exitFullscreen();
+  }
+}
+
+// ──────────────────────────────────────────
+// KEYBOARD SHORTCUTS
+// ──────────────────────────────────────────
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'KeyF') {
+    toggleFullscreen();
+  }
+  if (e.code === 'Escape') {
+    closePopup();
+    closeMedia();
+  }
+});
+
+// ──────────────────────────────────────────
+// INIT
+// ──────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', init);
+
+// Handle resize
+window.addEventListener('resize', drawWheel);
+</script>
+</body>
+</html>
