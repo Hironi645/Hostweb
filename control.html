@@ -1,0 +1,2028 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Control Panel - StreamOverlay Pro</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+<!-- HLS.js for streaming support -->
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<style>
+  :root {
+    --primary: #6366f1;
+    --primary-dark: #4f46e5;
+    --primary-light: #818cf8;
+    --primary-glow: rgba(99, 102, 241, 0.5);
+    --glass-bg: rgba(255, 255, 255, 0.08);
+    --glass-border: rgba(255, 255, 255, 0.18);
+    --text-primary: #ffffff;
+    --text-secondary: rgba(255,255,255,0.7);
+    --text-muted: rgba(255,255,255,0.4);
+    --bg-dark: #0a0a0f;
+    --success: #22c55e;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --info: #3b82f6;
+    --panel-bg: #13131a;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  html, body {
+    font-family: 'Inter', sans-serif;
+    background: var(--bg-dark);
+    color: var(--text-primary);
+    min-height: 100vh;
+    overflow: hidden;
+  }
+
+  /* ── LAYOUT ── */
+  .app-container {
+    display: grid;
+    grid-template-columns: 260px 1fr 300px;
+    grid-template-rows: 55px 1fr 65px;
+    grid-template-areas: 
+      "header header header"
+      "scenes preview properties"
+      "scenes controls properties";
+    height: 100vh;
+    gap: 8px;
+    padding: 8px;
+  }
+
+  @media (max-width: 1024px) {
+    .app-container {
+      grid-template-columns: 220px 1fr 260px;
+    }
+  }
+
+  @media (max-width: 768px) {
+    .app-container {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto auto 1fr auto;
+      grid-template-areas: 
+        "header"
+        "scenes"
+        "preview"
+        "controls";
+      height: auto;
+      min-height: 100vh;
+      gap: 6px;
+      padding: 6px;
+    }
+    .properties-panel { display: none; }
+    .scenes-panel { max-height: 200px; }
+  }
+
+  /* ── HEADER ── */
+  .header {
+    grid-area: header;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 15px;
+    background: var(--panel-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 10px;
+  }
+  .header h1 {
+    font-size: 18px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .header h1 span { font-size: 20px; }
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .status-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: rgba(0,0,0,0.3);
+    border-radius: 16px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .status-badge.online { color: var(--success); }
+  .status-badge.offline { color: var(--danger); }
+  .status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    animation: pulse 1.5s infinite;
+  }
+  .online .status-dot { background: var(--success); }
+  .offline .status-dot { background: var(--danger); }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+  .header-btn {
+    padding: 8px 14px;
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+    border: none;
+    border-radius: 8px;
+    color: white;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    text-decoration: none;
+  }
+  .header-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 15px var(--primary-glow);
+  }
+  .header-btn.secondary {
+    background: rgba(255,255,255,0.1);
+  }
+  .header-btn.secondary:hover {
+    background: rgba(99,102,241,0.3);
+  }
+
+  @media (max-width: 768px) {
+    .header h1 { font-size: 16px; }
+    .header-btn { padding: 6px 10px; font-size: 11px; }
+    .status-badge { display: none; }
+  }
+
+  /* ── PANEL STYLES ── */
+  .panel {
+    background: var(--panel-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .panel-header {
+    padding: 12px;
+    background: rgba(255,255,255,0.03);
+    border-bottom: 1px solid var(--glass-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 44px;
+  }
+  .panel-title {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--primary-light);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .panel-btn {
+    width: 28px;
+    height: 28px;
+    background: rgba(255,255,255,0.08);
+    border: none;
+    border-radius: 6px;
+    color: white;
+    font-size: 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+  }
+  .panel-btn:hover { background: var(--primary); }
+  .panel-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+  }
+  .panel-content::-webkit-scrollbar { width: 5px; }
+  .panel-content::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.4); border-radius: 3px; }
+
+  /* ── SCENES PANEL ── */
+  .scenes-panel { grid-area: scenes; }
+  .scene-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .scene-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px;
+    background: rgba(255,255,255,0.03);
+    border: 2px solid transparent;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .scene-item:hover {
+    background: rgba(255,255,255,0.06);
+    border-color: rgba(99,102,241,0.3);
+  }
+  .scene-item.active {
+    background: rgba(99,102,241,0.15);
+    border-color: var(--primary);
+  }
+  .scene-icon { font-size: 16px; }
+  .scene-name {
+    flex: 1;
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .scene-delete {
+    width: 24px;
+    height: 24px;
+    background: rgba(255,255,255,0.08);
+    border: none;
+    border-radius: 5px;
+    color: white;
+    font-size: 12px;
+    cursor: pointer;
+    opacity: 0;
+    transition: all 0.2s;
+  }
+  .scene-item:hover .scene-delete { opacity: 1; }
+  .scene-delete:hover { background: var(--danger); }
+
+  /* ── TRANSITION SELECTOR ── */
+  .transition-section {
+    padding: 10px;
+    border-bottom: 1px solid var(--glass-border);
+  }
+  .transition-label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+    display: block;
+  }
+  .transition-select {
+    width: 100%;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--glass-border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    color: white;
+    font-family: inherit;
+    font-size: 12px;
+    outline: none;
+    cursor: pointer;
+  }
+  .transition-select option {
+    background: #1a1a1a;
+  }
+
+  /* ── PREVIEW PANEL ── */
+  .preview-panel { grid-area: preview; }
+  .preview-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 10px;
+    gap: 10px;
+    min-height: 0;
+  }
+  .preview-screen {
+    flex: 1;
+    background: #000;
+    border-radius: 8px;
+    overflow: hidden;
+    position: relative;
+    min-height: 200px;
+    border: 2px solid var(--glass-border);
+    touch-action: none;
+  }
+  .preview-placeholder {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    gap: 8px;
+    background: linear-gradient(135deg, #0a0a0a, #000);
+    text-align: center;
+    padding: 20px;
+  }
+  .preview-placeholder .icon { font-size: 40px; }
+  .preview-placeholder .text { font-size: 14px; }
+  .preview-info {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    background: rgba(255,255,255,0.03);
+    border-radius: 8px;
+  }
+  .preview-scene-name {
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .preview-live-badge {
+    padding: 4px 10px;
+    background: var(--danger);
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    animation: livePulse 1.5s infinite;
+  }
+  @keyframes livePulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+  }
+
+  /* ── PROPERTIES PANEL ── */
+  .properties-panel { grid-area: properties; }
+  .properties-content {
+    padding: 12px;
+  }
+  .prop-group {
+    margin-bottom: 16px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--glass-border);
+  }
+  .prop-group:last-child {
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-bottom: none;
+  }
+  .prop-label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+    display: block;
+  }
+  .prop-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .prop-input {
+    width: 100%;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--glass-border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    color: white;
+    font-family: inherit;
+    font-size: 12px;
+    outline: none;
+    transition: all 0.2s;
+  }
+  .prop-input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px rgba(99,102,241,0.15);
+  }
+  .prop-input[type="color"] {
+    height: 36px;
+    padding: 4px;
+    cursor: pointer;
+  }
+  .prop-select {
+    width: 100%;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--glass-border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    color: white;
+    font-family: inherit;
+    font-size: 12px;
+    outline: none;
+    cursor: pointer;
+  }
+  .prop-select option {
+    background: #1a1a1a;
+  }
+  .prop-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .prop-checkbox input {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--primary);
+  }
+
+  /* ── CONTROLS PANEL ── */
+  .controls-panel {
+    grid-area: controls;
+    display: flex;
+    gap: 8px;
+    padding: 12px;
+    background: var(--panel-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .control-group {
+    display: flex;
+    gap: 6px;
+  }
+  .control-btn {
+    padding: 10px 16px;
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+    border: none;
+    border-radius: 8px;
+    color: white;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .control-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px var(--primary-glow);
+  }
+  .control-btn.secondary {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid var(--glass-border);
+  }
+  .control-btn.secondary:hover {
+    background: rgba(99,102,241,0.2);
+    border-color: var(--primary);
+  }
+  .control-btn.danger {
+    background: linear-gradient(135deg, var(--danger), #dc2626);
+  }
+
+  @media (max-width: 768px) {
+    .controls-panel { padding: 8px; }
+    .control-btn { padding: 8px 12px; font-size: 11px; }
+  }
+
+  /* ── SOURCE LIST ── */
+  .source-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .source-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid transparent;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .source-item:hover {
+    background: rgba(255,255,255,0.06);
+    border-color: rgba(99,102,241,0.3);
+  }
+  .source-item.selected {
+    background: rgba(99,102,241,0.15);
+    border-color: var(--primary);
+  }
+  .source-item.hidden { opacity: 0.5; }
+  .source-icon {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255,255,255,0.08);
+    border-radius: 6px;
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+  .source-icon.youtube { background: #ff0000; }
+  .source-icon.rtsp { background: #3b82f6; }
+  .source-icon.gif { background: #22c55e; }
+  .source-icon.image { background: #8b5cf6; }
+  .source-icon.text { background: #f59e0b; }
+  .source-info {
+    flex: 1;
+    min-width: 0;
+  }
+  .source-name {
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .source-type {
+    font-size: 10px;
+    color: var(--text-muted);
+  }
+  .source-actions {
+    display: flex;
+    gap: 4px;
+  }
+  .source-btn {
+    width: 26px;
+    height: 26px;
+    background: rgba(255,255,255,0.08);
+    border: none;
+    border-radius: 5px;
+    color: white;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .source-btn:hover { background: var(--primary); }
+  .source-btn.delete:hover { background: var(--danger); }
+
+  /* ── MODAL ── */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.9);
+    backdrop-filter: blur(10px);
+    z-index: 1000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 15px;
+  }
+  .modal-overlay.active { display: flex; }
+  .modal {
+    background: var(--panel-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 16px;
+    padding: 20px;
+    width: 100%;
+    max-width: 500px;
+    max-height: 85vh;
+    overflow-y: auto;
+  }
+  .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .modal-title {
+    font-size: 16px;
+    font-weight: 700;
+  }
+  .modal-close {
+    width: 32px;
+    height: 32px;
+    background: rgba(255,255,255,0.08);
+    border: none;
+    border-radius: 8px;
+    color: white;
+    font-size: 18px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .modal-close:hover { background: var(--danger); }
+
+  /* ── TABS ── */
+  .tabs {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    background: rgba(255,255,255,0.03);
+    border-radius: 10px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .tab {
+    flex: 1;
+    min-width: 70px;
+    padding: 10px 8px;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+  }
+  .tab:hover { color: white; }
+  .tab.active {
+    background: var(--primary);
+    color: white;
+  }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* ── FORM ── */
+  .form-group {
+    margin-bottom: 12px;
+  }
+  .form-label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .form-input, .form-select, .form-textarea {
+    width: 100%;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    color: white;
+    font-family: inherit;
+    font-size: 13px;
+    outline: none;
+    transition: all 0.2s;
+  }
+  .form-input:focus, .form-select:focus, .form-textarea:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px rgba(99,102,241,0.15);
+  }
+  .form-textarea {
+    min-height: 60px;
+    resize: vertical;
+  }
+  .form-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 5px;
+  }
+  .form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .form-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .form-checkbox input {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--primary);
+  }
+  .modal-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 20px;
+  }
+  .modal-actions .control-btn {
+    flex: 1;
+  }
+
+  /* ── TOAST ── */
+  .toast {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%) translateY(100px);
+    background: rgba(30,30,40,0.95);
+    backdrop-filter: blur(16px);
+    border: 1px solid var(--primary);
+    border-radius: 12px;
+    padding: 14px 24px;
+    font-size: 13px;
+    font-weight: 600;
+    color: white;
+    z-index: 2000;
+    transition: all 0.3s;
+    opacity: 0;
+  }
+  .toast.show {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+  }
+
+  /* ── DRAG PREVIEW ITEMS ── */
+  .preview-item {
+    position: absolute;
+    cursor: grab;
+    user-select: none;
+    border: 2px solid transparent;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    touch-action: none;
+    overflow: hidden;
+    background: transparent;
+  }
+  .preview-item:active {
+    cursor: grabbing;
+  }
+  .preview-item:hover {
+    border-color: rgba(99,102,241,0.5);
+  }
+  .preview-item.selected {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(99,102,241,0.2);
+    z-index: 100;
+  }
+  .preview-item iframe,
+  .preview-item img,
+  .preview-item video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    border: none;
+    display: block;
+    background: transparent;
+  }
+  .preview-item .text-content {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  .preview-item .website-fallback {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #1a1a2e, #16213e);
+    color: white;
+    padding: 10px;
+    text-align: center;
+    font-size: 12px;
+  }
+  .preview-item .website-fallback .icon {
+    font-size: 32px;
+    margin-bottom: 8px;
+  }
+  .resize-handle {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    background: var(--primary);
+    border: 2px solid white;
+    border-radius: 50%;
+    display: none;
+    z-index: 101;
+  }
+  .preview-item.selected .resize-handle {
+    display: block;
+  }
+  .resize-handle.se { bottom: -6px; right: -6px; cursor: se-resize; }
+  .resize-handle.sw { bottom: -6px; left: -6px; cursor: sw-resize; }
+  .resize-handle.ne { top: -6px; right: -6px; cursor: ne-resize; }
+  .resize-handle.nw { top: -6px; left: -6px; cursor: nw-resize; }
+</style>
+</head>
+<body>
+
+<div class="app-container">
+  <!-- HEADER -->
+  <div class="header">
+    <h1><span>🎛️</span> StreamOverlay Pro</h1>
+    <div class="header-actions">
+      <div class="status-badge offline" id="connectionStatus">
+        <span class="status-dot"></span>
+        <span id="statusText">Menghubungkan...</span>
+      </div>
+      <a href="view.html" target="_blank" class="header-btn secondary">📺 Output</a>
+      <a href="overlay.html" target="_blank" class="header-btn">🔗 Overlay</a>
+    </div>
+  </div>
+
+  <!-- SCENES PANEL -->
+  <div class="panel scenes-panel">
+    <div class="panel-header">
+      <span class="panel-title">🎬 Scenes</span>
+      <button class="panel-btn" onclick="showAddSceneModal()" title="Tambah Scene">+</button>
+    </div>
+    <div class="panel-content">
+      <div class="scene-list" id="sceneList"></div>
+    </div>
+    
+    <div class="transition-section">
+      <label class="transition-label">✨ Transisi Scene</label>
+      <select class="transition-select" id="transitionSelect" onchange="changeTransition(this.value)">
+        <option value="fade">Fade</option>
+        <option value="slide-left">Slide Left</option>
+        <option value="slide-right">Slide Right</option>
+        <option value="slide-up">Slide Up</option>
+        <option value="slide-down">Slide Down</option>
+        <option value="zoom-in">Zoom In</option>
+        <option value="zoom-out">Zoom Out</option>
+        <option value="flip-x">Flip X</option>
+        <option value="flip-y">Flip Y</option>
+        <option value="cube-left">Cube Left</option>
+        <option value="cube-right">Cube Right</option>
+        <option value="wipe-left">Wipe Left</option>
+        <option value="wipe-right">Wipe Right</option>
+        <option value="wipe-up">Wipe Up</option>
+        <option value="wipe-down">Wipe Down</option>
+        <option value="rotate">Rotate</option>
+        <option value="scale">Scale</option>
+        <option value="blur">Blur</option>
+        <option value="pixelate">Pixelate</option>
+        <option value="glitch">Glitch</option>
+        <option value="bounce">Bounce</option>
+        <option value="elastic">Elastic</option>
+        <option value="back">Back</option>
+      </select>
+    </div>
+    
+    <div class="panel-header" style="border-top: 1px solid var(--glass-border); border-bottom: none;">
+      <span class="panel-title">📁 Sources</span>
+      <button class="panel-btn" onclick="showAddSourceModal()" title="Tambah Source">+</button>
+    </div>
+    <div class="panel-content">
+      <div class="source-list" id="sourceList"></div>
+    </div>
+  </div>
+
+  <!-- PREVIEW PANEL -->
+  <div class="panel preview-panel">
+    <div class="panel-header">
+      <span class="panel-title">👁️ Preview</span>
+      <span style="font-size: 11px; color: var(--text-muted);">Drag untuk pindah</span>
+    </div>
+    <div class="preview-container">
+      <div class="preview-screen" id="previewScreen">
+        <div class="preview-placeholder">
+          <span class="icon">📺</span>
+          <span class="text">Pilih scene untuk preview</span>
+        </div>
+      </div>
+      <div class="preview-info">
+        <span class="preview-scene-name" id="previewSceneName">-</span>
+        <span class="preview-live-badge">LIVE</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- PROPERTIES PANEL -->
+  <div class="panel properties-panel">
+    <div class="panel-header">
+      <span class="panel-title">⚙️ Properties</span>
+    </div>
+    <div class="properties-content" id="propertiesContent">
+      <div style="text-align: center; padding: 30px 15px; color: var(--text-muted);">
+        <div style="font-size: 32px; margin-bottom: 10px;">📋</div>
+        <div style="font-size: 13px;">Pilih source untuk edit</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONTROLS PANEL -->
+  <div class="controls-panel">
+    <div class="control-group">
+      <button class="control-btn" onclick="showAddSceneModal()">➕ Scene</button>
+      <button class="control-btn" onclick="showAddSourceModal()">➕ Source</button>
+    </div>
+    <div class="control-group">
+      <button class="control-btn secondary" onclick="duplicateSelectedSource()">📋 Duplikat</button>
+      <button class="control-btn danger" onclick="deleteSelectedSource()">🗑️ Hapus</button>
+    </div>
+    <div style="flex: 1;"></div>
+    <button class="control-btn secondary" onclick="clearAllSources()">🧹 Bersihkan</button>
+  </div>
+</div>
+
+<!-- ADD SCENE MODAL -->
+<div class="modal-overlay" id="addSceneModal">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">➕ Tambah Scene</span>
+      <button class="modal-close" onclick="closeModal('addSceneModal')">✕</button>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Nama Scene</label>
+      <input type="text" class="form-input" id="sceneNameInput" placeholder="Contoh: Opening, Gameplay...">
+    </div>
+    <div class="modal-actions">
+      <button class="control-btn secondary" onclick="closeModal('addSceneModal')">Batal</button>
+      <button class="control-btn" onclick="addScene()">Tambah</button>
+    </div>
+  </div>
+</div>
+
+<!-- ADD SOURCE MODAL -->
+<div class="modal-overlay" id="addSourceModal">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">➕ Tambah Source</span>
+      <button class="modal-close" onclick="closeModal('addSourceModal')">✕</button>
+    </div>
+    
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab(event, 'youtube')">📺 YouTube</button>
+      <button class="tab" onclick="switchTab(event, 'rtsp')">📡 RTSP Stream</button>
+      <button class="tab" onclick="switchTab(event, 'gif')">🎬 GIF</button>
+      <button class="tab" onclick="switchTab(event, 'image')">🖼️ Gambar</button>
+      <button class="tab" onclick="switchTab(event, 'text')">📝 Teks</button>
+    </div>
+    
+    <!-- YouTube Tab -->
+    <div class="tab-content active" id="tab-youtube">
+      <div class="form-group">
+        <label class="form-label">Nama Source</label>
+        <input type="text" class="form-input" id="ytSourceName" placeholder="Contoh: Music">
+      </div>
+      <div class="form-group">
+        <label class="form-label">URL YouTube</label>
+        <input type="text" class="form-input" id="ytUrl" placeholder="https://youtube.com/watch?v=...">
+        <p class="form-hint">Video akan ditampilkan tanpa judul dan kontrol</p>
+      </div>
+      <div class="form-row">
+        <label class="form-checkbox"><input type="checkbox" id="ytAutoplay" checked> Autoplay</label>
+        <label class="form-checkbox"><input type="checkbox" id="ytMuted"> Muted</label>
+        <label class="form-checkbox"><input type="checkbox" id="ytLoop" checked> Loop</label>
+      </div>
+    </div>
+    
+    <!-- RTSP/HLS Stream Tab -->
+    <div class="tab-content" id="tab-rtsp">
+      <div class="form-group">
+        <label class="form-label">Nama Source</label>
+        <input type="text" class="form-input" id="rtspSourceName" placeholder="Contoh: Screen Capture">
+      </div>
+      <div class="form-group">
+        <label class="form-label">URL Stream (HLS/RTSP)</label>
+        <input type="text" class="form-input" id="rtspUrl" value="http://192.168.88.24:8888/screen" placeholder="http://.../playlist.m3u8 atau rtsp://...">
+        <p class="form-hint" style="color: #f59e0b;">
+          <strong>Catatan:</strong> Browser tidak mendukung RTSP langsung. Gunakan URL HLS (.m3u8) atau WebRTC.<br>
+          Contoh HLS: <code>http://192.168.88.24:8888/screen</code> (MediaMTX)
+        </p>
+      </div>
+      <div class="form-row">
+        <label class="form-checkbox"><input type="checkbox" id="rtspIsHls" checked> Gunakan HLS (hls.js)</label>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Lebar (%)</label>
+          <input type="number" class="form-input" id="rtspWidth" value="50" min="5" max="100">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Tinggi (%)</label>
+          <input type="number" class="form-input" id="rtspHeight" value="40" min="5" max="100">
+        </div>
+      </div>
+    </div>
+    
+    <!-- GIF Tab -->
+    <div class="tab-content" id="tab-gif">
+      <div class="form-group">
+        <label class="form-label">Nama Source</label>
+        <input type="text" class="form-input" id="gifSourceName" placeholder="Contoh: Animation">
+      </div>
+      <div class="form-group">
+        <label class="form-label">URL GIF</label>
+        <input type="text" class="form-input" id="gifUrl" placeholder="https://example.com/animation.gif">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Lebar (%)</label>
+          <input type="number" class="form-input" id="gifWidth" value="20" min="5" max="100">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Tinggi (%)</label>
+          <input type="number" class="form-input" id="gifHeight" value="20" min="5" max="100">
+        </div>
+      </div>
+    </div>
+    
+    <!-- Image Tab -->
+    <div class="tab-content" id="tab-image">
+      <div class="form-group">
+        <label class="form-label">Nama Source</label>
+        <input type="text" class="form-input" id="imgSourceName" placeholder="Contoh: Logo">
+      </div>
+      <div class="form-group">
+        <label class="form-label">URL Gambar</label>
+        <input type="text" class="form-input" id="imgUrl" placeholder="https://example.com/image.png">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Lebar (%)</label>
+          <input type="number" class="form-input" id="imgWidth" value="25" min="5" max="100">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Tinggi (%)</label>
+          <input type="number" class="form-input" id="imgHeight" value="25" min="5" max="100">
+        </div>
+      </div>
+    </div>
+    
+    <!-- Text Tab -->
+    <div class="tab-content" id="tab-text">
+      <div class="form-group">
+        <label class="form-label">Nama Source</label>
+        <input type="text" class="form-input" id="textSourceName" placeholder="Contoh: Title">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Teks</label>
+        <input type="text" class="form-input" id="textContent" placeholder="Teks yang akan ditampilkan...">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Jenis</label>
+          <select class="form-select" id="textType">
+            <option value="static">Statis</option>
+            <option value="scrolling">Berjalan</option>
+            <option value="blink">Berkedip</option>
+            <option value="glow">Glow</option>
+            <option value="rainbow">Rainbow</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Ukuran</label>
+          <select class="form-select" id="textSize">
+            <option value="16">16px</option>
+            <option value="24">24px</option>
+            <option value="32" selected>32px</option>
+            <option value="48">48px</option>
+            <option value="64">64px</option>
+            <option value="96">96px</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Warna Teks</label>
+          <input type="color" class="form-input" id="textColor" value="#ffffff">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Background</label>
+          <input type="color" class="form-input" id="textBgColor" value="#000000">
+        </div>
+      </div>
+      <div class="form-row">
+        <label class="form-checkbox"><input type="checkbox" id="textBold" checked> Bold</label>
+        <label class="form-checkbox"><input type="checkbox" id="textShadow" checked> Shadow</label>
+      </div>
+    </div>
+    
+    <div class="modal-actions">
+      <button class="control-btn secondary" onclick="closeModal('addSourceModal')">Batal</button>
+      <button class="control-btn" onclick="addSource()">Tambah</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script>
+// Firebase Config
+const firebaseConfig = {
+  databaseURL: "https://spin-c7801-default-rtdb.asia-southeast1.firebasedatabase.app/"
+};
+firebase.initializeApp(firebaseConfig);
+const database = firebase.database();
+
+// State
+let scenes = [];
+let activeSceneId = null;
+let selectedSourceId = null;
+let currentTab = 'youtube';
+let isDragging = false;
+let isResizing = false;
+let dragOffset = { x: 0, y: 0 };
+let resizeStart = { x: 0, y: 0, w: 0, h: 0, left: 0, top: 0 };
+let draggedSourceId = null;
+let firebaseSaveTimer = null;
+const hlsInstances = {}; // Simpan HLS instance dengan key videoId
+
+function debouncedFirebaseSave(fn, delay) {
+  clearTimeout(firebaseSaveTimer);
+  firebaseSaveTimer = setTimeout(fn, delay || 200);
+}
+
+// Init
+function init() {
+  database.ref('.info/connected').on('value', (snapshot) => {
+    const statusEl = document.getElementById('connectionStatus');
+    const text = document.getElementById('statusText');
+    if (snapshot.val() === true) {
+      statusEl.classList.remove('offline');
+      statusEl.classList.add('online');
+      text.textContent = 'Online';
+    } else {
+      statusEl.classList.remove('online');
+      statusEl.classList.add('offline');
+      text.textContent = 'Offline';
+    }
+  });
+
+  database.ref('stream/transition').on('value', (snapshot) => {
+    const transition = snapshot.val();
+    if (transition) {
+      document.getElementById('transitionSelect').value = transition;
+    }
+  });
+
+  database.ref('stream/scenes').on('value', (snapshot) => {
+    const data = snapshot.val();
+    if (data) {
+      scenes = Object.entries(data).map(([id, scene]) => ({ id, ...scene }));
+      renderScenes();
+      renderSources();
+      renderPreview();
+    } else {
+      createDefaultScene();
+    }
+  });
+
+  database.ref('stream/activeScene').on('value', (snapshot) => {
+    activeSceneId = snapshot.val();
+    renderScenes();
+    renderSources();
+    renderPreview();
+  });
+
+  setupPreviewInteractions();
+}
+
+function createDefaultScene() {
+  const defaultScene = {
+    id: 'scene_' + Date.now(),
+    name: 'Scene 1',
+    sources: []
+  };
+  database.ref('stream/scenes/' + defaultScene.id).set(defaultScene);
+  database.ref('stream/activeScene').set(defaultScene.id);
+}
+
+function changeTransition(transition) {
+  database.ref('stream/transition').set(transition);
+  showToast('Transisi: ' + transition);
+}
+
+// Scene Management
+function renderScenes() {
+  const container = document.getElementById('sceneList');
+  container.innerHTML = scenes.map(scene => `
+    <div class="scene-item ${scene.id === activeSceneId ? 'active' : ''}" onclick="switchScene('${scene.id}')">
+      <span class="scene-icon">🎬</span>
+      <span class="scene-name">${escapeHtml(scene.name)}</span>
+      <button class="scene-delete" onclick="event.stopPropagation(); deleteScene('${scene.id}')">🗑️</button>
+    </div>
+  `).join('');
+  
+  const activeScene = scenes.find(s => s.id === activeSceneId);
+  document.getElementById('previewSceneName').textContent = activeScene?.name || '-';
+}
+
+function switchScene(sceneId) {
+  database.ref('stream/activeScene').set(sceneId);
+  selectedSourceId = null;
+  updatePropertiesPanel();
+  showToast('Scene: ' + (scenes.find(s => s.id === sceneId)?.name || 'Unknown'));
+}
+
+function showAddSceneModal() {
+  document.getElementById('sceneNameInput').value = '';
+  document.getElementById('addSceneModal').classList.add('active');
+}
+
+function addScene() {
+  const name = document.getElementById('sceneNameInput').value.trim();
+  if (!name) {
+    showToast('Masukkan nama scene!');
+    return;
+  }
+  
+  const newScene = { name: name, sources: [] };
+  const sceneRef = database.ref('stream/scenes').push();
+  sceneRef.set(newScene);
+  database.ref('stream/activeScene').set(sceneRef.key);
+  
+  closeModal('addSceneModal');
+  showToast('Scene "' + name + '" ditambahkan!');
+}
+
+function deleteScene(sceneId) {
+  if (scenes.length <= 1) {
+    showToast('Minimal 1 scene!');
+    return;
+  }
+  if (!confirm('Hapus scene ini?')) return;
+  
+  database.ref('stream/scenes/' + sceneId).remove();
+  if (activeSceneId === sceneId) {
+    const remainingScene = scenes.find(s => s.id !== sceneId);
+    if (remainingScene) {
+      database.ref('stream/activeScene').set(remainingScene.id);
+    }
+  }
+  showToast('Scene dihapus');
+}
+
+// Source Management
+function renderSources() {
+  const container = document.getElementById('sourceList');
+  const activeScene = scenes.find(s => s.id === activeSceneId);
+  
+  if (!activeScene || !activeScene.sources || activeScene.sources.length === 0) {
+    container.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--text-muted); font-size: 12px;"><div style="font-size: 24px; margin-bottom: 8px;">📁</div><div>Belum ada source</div></div>';
+    return;
+  }
+  
+  container.innerHTML = activeScene.sources.map((source) => `
+    <div class="source-item ${source.id === selectedSourceId ? 'selected' : ''} ${source.hidden ? 'hidden' : ''}" 
+         onclick="selectSource('${source.id}')">
+      <div class="source-icon ${source.type}">${getSourceIcon(source.type)}</div>
+      <div class="source-info">
+        <div class="source-name">${escapeHtml(source.name)}</div>
+        <div class="source-type">${getSourceTypeLabel(source.type)}</div>
+      </div>
+      <div class="source-actions">
+        <button class="source-btn" onclick="event.stopPropagation(); toggleSourceVisibility('${source.id}')">👁️</button>
+        <button class="source-btn delete" onclick="event.stopPropagation(); deleteSource('${source.id}')">🗑️</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function getSourceIcon(type) {
+  const icons = { youtube: '📺', rtsp: '📡', gif: '🎬', image: '🖼️', text: '📝' };
+  return icons[type] || '📄';
+}
+
+function getSourceTypeLabel(type) {
+  const labels = { youtube: 'YOUTUBE', rtsp: 'RTSP STREAM', gif: 'GIF', image: 'IMAGE', text: 'TEXT' };
+  return labels[type] || type.toUpperCase();
+}
+
+function selectSource(sourceId) {
+  selectedSourceId = sourceId;
+  // Update CSS classes only — jangan rebuild DOM agar iframe/video tidak restart
+  document.querySelectorAll('.preview-item').forEach(el => {
+    el.classList.toggle('selected', el.dataset.sourceId === sourceId);
+  });
+  renderSources();
+  updatePropertiesPanel();
+}
+
+function toggleSourceVisibility(sourceId) {
+  const activeScene = scenes.find(s => s.id === activeSceneId);
+  if (!activeScene) return;
+  
+  const sourceIndex = activeScene.sources.findIndex(s => s.id === sourceId);
+  if (sourceIndex === -1) return;
+  
+  activeScene.sources[sourceIndex].hidden = !activeScene.sources[sourceIndex].hidden;
+  database.ref('stream/scenes/' + activeSceneId + '/sources').set(activeScene.sources);
+  
+  renderSources();
+  renderPreview();
+}
+
+function deleteSource(sourceId) {
+  if (!confirm('Hapus source ini?')) return;
+  
+  const activeScene = scenes.find(s => s.id === activeSceneId);
+  if (!activeScene) return;
+  
+  activeScene.sources = activeScene.sources.filter(s => s.id !== sourceId);
+  database.ref('stream/scenes/' + activeSceneId + '/sources').set(activeScene.sources);
+  
+  if (selectedSourceId === sourceId) {
+    selectedSourceId = null;
+    updatePropertiesPanel();
+  }
+  showToast('Source dihapus');
+}
+
+function duplicateSelectedSource() {
+  if (!selectedSourceId) {
+    showToast('Pilih source dulu!');
+    return;
+  }
+  
+  const activeScene = scenes.find(s => s.id === activeSceneId);
+  if (!activeScene) return;
+  
+  const source = activeScene.sources.find(s => s.id === selectedSourceId);
+  if (!source) return;
+  
+  const newSource = JSON.parse(JSON.stringify(source));
+  newSource.id = 'source_' + Date.now();
+  newSource.name = source.name + ' (Copy)';
+  newSource.x = (source.x || 10) + 5;
+  newSource.y = (source.y || 10) + 5;
+  
+  activeScene.sources.push(newSource);
+  database.ref('stream/scenes/' + activeSceneId + '/sources').set(activeScene.sources);
+  
+  selectedSourceId = newSource.id;
+  renderSources();
+  updatePropertiesPanel();
+  renderPreview();
+  showToast('Source diduplikat');
+}
+
+function deleteSelectedSource() {
+  if (!selectedSourceId) {
+    showToast('Pilih source dulu!');
+    return;
+  }
+  deleteSource(selectedSourceId);
+}
+
+function clearAllSources() {
+  if (!confirm('Hapus semua source?')) return;
+  
+  const activeScene = scenes.find(s => s.id === activeSceneId);
+  if (!activeScene) return;
+  
+  activeScene.sources = [];
+  database.ref('stream/scenes/' + activeSceneId + '/sources').set(activeScene.sources);
+  
+  selectedSourceId = null;
+  updatePropertiesPanel();
+  showToast('Semua source dihapus');
+}
+
+// Add Source
+function showAddSourceModal() {
+  document.getElementById('ytSourceName').value = '';
+  document.getElementById('ytUrl').value = '';
+  document.getElementById('rtspSourceName').value = '';
+  document.getElementById('rtspUrl').value = 'http://192.168.88.24:8888/screen';
+  document.getElementById('gifSourceName').value = '';
+  document.getElementById('gifUrl').value = '';
+  document.getElementById('imgSourceName').value = '';
+  document.getElementById('imgUrl').value = '';
+  document.getElementById('textSourceName').value = '';
+  document.getElementById('textContent').value = '';
+  
+  document.getElementById('addSourceModal').classList.add('active');
+}
+
+function switchTab(event, tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('tab-' + tab).classList.add('active');
+}
+
+function addSource() {
+  const activeScene = scenes.find(s => s.id === activeSceneId);
+  if (!activeScene) {
+    showToast('Pilih scene dulu!');
+    return;
+  }
+  
+  let newSource = {
+    id: 'source_' + Date.now(),
+    type: currentTab,
+    x: 10,
+    y: 10,
+    width: 30,
+    height: 30,
+    hidden: false
+  };
+  
+  switch(currentTab) {
+    case 'youtube':
+      var ytName = document.getElementById('ytSourceName').value.trim();
+      var ytUrl = document.getElementById('ytUrl').value.trim();
+      if (!ytName || !ytUrl) {
+        showToast('Lengkapi data YouTube!');
+        return;
+      }
+      newSource.name = ytName;
+      newSource.url = ytUrl;
+      newSource.autoplay = document.getElementById('ytAutoplay').checked;
+      newSource.muted = document.getElementById('ytMuted').checked;
+      newSource.loop = document.getElementById('ytLoop').checked;
+      newSource.width = 50;
+      newSource.height = 40;
+      break;
+      
+    case 'rtsp':
+      var rtspName = document.getElementById('rtspSourceName').value.trim();
+      var rtspUrl = document.getElementById('rtspUrl').value.trim();
+      if (!rtspName || !rtspUrl) {
+        showToast('Lengkapi data stream!');
+        return;
+      }
+      newSource.name = rtspName;
+      newSource.url = rtspUrl;
+      newSource.isHls = document.getElementById('rtspIsHls').checked;
+      newSource.width = parseInt(document.getElementById('rtspWidth').value) || 50;
+      newSource.height = parseInt(document.getElementById('rtspHeight').value) || 40;
+      break;
+      
+    case 'gif':
+      var gifName = document.getElementById('gifSourceName').value.trim();
+      var gifUrl = document.getElementById('gifUrl').value.trim();
+      if (!gifName || !gifUrl) {
+        showToast('Lengkapi data GIF!');
+        return;
+      }
+      newSource.name = gifName;
+      newSource.url = gifUrl;
+      newSource.width = parseInt(document.getElementById('gifWidth').value) || 20;
+      newSource.height = parseInt(document.getElementById('gifHeight').value) || 20;
+      break;
+      
+    case 'image':
+      var imgName = document.getElementById('imgSourceName').value.trim();
+      var imgUrl = document.getElementById('imgUrl').value.trim();
+      if (!imgName || !imgUrl) {
+        showToast('Lengkapi data gambar!');
+        return;
+      }
+      newSource.name = imgName;
+      newSource.url = imgUrl;
+      newSource.width = parseInt(document.getElementById('imgWidth').value) || 25;
+      newSource.height = parseInt(document.getElementById('imgHeight').value) || 25;
+      break;
+      
+    case 'text':
+      var textName = document.getElementById('textSourceName').value.trim();
+      var textContent = document.getElementById('textContent').value.trim();
+      if (!textName || !textContent) {
+        showToast('Lengkapi data teks!');
+        return;
+      }
+      newSource.name = textName;
+      newSource.text = textContent;
+      newSource.textType = document.getElementById('textType').value;
+      newSource.fontSize = document.getElementById('textSize').value;
+      newSource.color = document.getElementById('textColor').value;
+      newSource.bgColor = document.getElementById('textBgColor').value;
+      newSource.bold = document.getElementById('textBold').checked;
+      newSource.shadow = document.getElementById('textShadow').checked;
+      newSource.width = 40;
+      newSource.height = 15;
+      break;
+  }
+  
+  if (!activeScene.sources) activeScene.sources = [];
+  activeScene.sources.push(newSource);
+  database.ref('stream/scenes/' + activeSceneId + '/sources').set(activeScene.sources);
+  
+  closeModal('addSourceModal');
+  showToast('Source "' + newSource.name + '" ditambahkan!');
+}
+
+// Preview Rendering
+function renderPreview() {
+  const screen = document.getElementById('previewScreen');
+  const activeScene = scenes.find(s => s.id === activeSceneId);
+  
+  if (!activeScene || !activeScene.sources || activeScene.sources.length === 0) {
+    screen.innerHTML = '<div class="preview-placeholder"><span class="icon">📺</span><span class="text">Scene kosong</span></div>';
+    return;
+  }
+  
+  const visibleSources = activeScene.sources.filter(s => !s.hidden);
+  
+  if (visibleSources.length === 0) {
+    screen.innerHTML = '<div class="preview-placeholder"><span class="icon">👁️</span><span class="text">Semua source tersembunyi</span></div>';
+    return;
+  }
+  
+  screen.innerHTML = visibleSources.map(source => {
+    const isSelected = source.id === selectedSourceId;
+    return '<div class="preview-item ' + (isSelected ? 'selected' : '') + '" ' +
+           'id="preview-' + source.id + '" ' +
+           'data-source-id="' + source.id + '" ' +
+           'style="left: ' + source.x + '%; top: ' + source.y + '%; width: ' + source.width + '%; height: ' + source.height + '%;" ' +
+           'onclick="event.stopPropagation(); selectSource(\'' + source.id + '\')">' +
+           renderSourceContent(source) +
+           '<div class="resize-handle se" data-resize="se"></div>' +
+           '<div class="resize-handle sw" data-resize="sw"></div>' +
+           '<div class="resize-handle ne" data-resize="ne"></div>' +
+           '<div class="resize-handle nw" data-resize="nw"></div>' +
+           '</div>';
+  }).join('');
+}
+
+function renderSourceContent(source) {
+  switch(source.type) {
+    case 'youtube':
+      var videoId = extractYouTubeId(source.url);
+      if (!videoId) return '<div style="color: red; padding: 10px; font-size: 12px;">Invalid URL</div>';
+      return '<iframe src="https://www.youtube.com/embed/' + videoId + 
+             '?autoplay=' + (source.autoplay ? 1 : 0) + 
+             '&mute=' + (source.muted ? 1 : 0) + 
+             '&loop=' + (source.loop ? 1 : 0) + 
+             '&playlist=' + videoId + 
+             '&controls=0&showinfo=0&modestbranding=1&rel=0&iv_load_policy=3&fs=0" ' +
+             'frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" ' +
+             'allowfullscreen style="background: #000;"></iframe>';
+      
+    case 'rtsp':
+      // RTSP/HLS Stream dengan hls.js support
+      var videoId = 'video_' + source.id.replace(/[^a-zA-Z0-9]/g, '_');
+      var isHls = source.isHls !== false && (source.url.includes('.m3u8') || source.url.includes('/hls/') || source.isHls);
+
+      if (isHls && typeof Hls !== 'undefined' && Hls.isSupported()) {
+        // HLS stream dengan hls.js
+        setTimeout(function() {
+          var video = document.getElementById(videoId);
+          if (video && !video.dataset.hlsInitialized) {
+            var hls = new Hls({
+              enableWorker: true,
+              lowLatencyMode: true,
+              backBufferLength: 90
+            });
+            hls.loadSource(source.url);
+            hls.attachMedia(video);
+            hls.on(Hls.Events.MANIFEST_PARSED, function() {
+              video.play().catch(function(e) { console.log('Autoplay prevented:', e); });
+            });
+            hls.on(Hls.Events.ERROR, function(event, data) {
+              console.error('HLS Error:', data);
+            });
+            video.dataset.hlsInitialized = 'true';
+            hlsInstances[videoId] = hls; // Simpan instance dengan benar
+          }
+        }, 100);
+
+        return '<div style="width: 100%; height: 100%; position: relative; background: #000;">' +
+               '<video id="' + videoId + '" ' +
+               'autoplay muted playsinline controls ' +
+               'style="width: 100%; height: 100%; object-fit: contain;">' +
+               '</video>' +
+               '<div class="stream-badge" style="position: absolute; top: 5px; left: 5px; background: rgba(0,0,0,0.7); color: #22c55e; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: bold;">HLS</div>' +
+               '</div>';
+      } else {
+        // Native video (MP4, WebRTC, dll)
+        return '<div style="width: 100%; height: 100%; position: relative; background: #000;">' +
+               '<video id="' + videoId + '" ' +
+               'src="' + source.url + '" ' +
+               'autoplay muted playsinline controls ' +
+               'style="width: 100%; height: 100%; object-fit: contain;" ' +
+               'onerror="this.style.display=\'none\'; this.nextElementSibling.style.display=\'flex\';">' +
+               '</video>' +
+               '<div class="rtsp-fallback" style="display: none; position: absolute; inset: 0; background: #1a1a2e; flex-direction: column; align-items: center; justify-content: center; color: white; text-align: center; padding: 10px;">' +
+               '<div style="font-size: 32px; margin-bottom: 8px;">📡</div>' +
+               '<div>' + escapeHtml(source.name) + '</div>' +
+               '<div style="font-size: 11px; opacity: 0.7; margin-top: 8px; max-width: 80%;">' +
+               'Stream tidak bisa dimuat.<br>Untuk RTSP, gunakan server konversi seperti MediaMTX.' +
+               '</div>' +
+               '<div style="font-size: 10px; opacity: 0.5; margin-top: 4px;">' + escapeHtml(source.url) + '</div>' +
+               '</div></div>';
+      }
+      
+    case 'gif':
+      return '<img src="' + source.url + '" alt="' + escapeHtml(source.name) + '" ' +
+             'style="width: 100%; height: 100%; object-fit: contain;" ' +
+             'onerror="this.style.display=\'none\'">';
+      
+    case 'image':
+      return '<img src="' + source.url + '" alt="' + escapeHtml(source.name) + '" ' +
+             'style="width: 100%; height: 100%; object-fit: contain;" ' +
+             'onerror="this.style.display=\'none\'">';
+      
+    case 'text':
+      var textStyles = [];
+      textStyles.push('font-size: ' + (source.fontSize || 32) + 'px');
+      textStyles.push('color: ' + (source.color || '#ffffff'));
+      textStyles.push('background: ' + (source.bgColor || 'transparent'));
+      if (source.bold) textStyles.push('font-weight: bold');
+      if (source.shadow) textStyles.push('text-shadow: 2px 2px 4px rgba(0,0,0,0.8)');
+      
+      var textContent = escapeHtml(source.text || '');
+      
+      switch(source.textType) {
+        case 'scrolling':
+          return '<div class="text-content" style="' + textStyles.join(';') + '; white-space: nowrap; overflow: hidden;">' +
+                 '<marquee behavior="scroll" direction="left" scrollamount="5">' + textContent + '</marquee></div>';
+        case 'blink':
+          textStyles.push('animation: blink 1s infinite');
+          break;
+        case 'glow':
+          textStyles.push('text-shadow: 0 0 10px ' + source.color + ', 0 0 20px ' + source.color + ', 0 0 30px ' + source.color);
+          break;
+        case 'rainbow':
+          textStyles.push('background: linear-gradient(90deg, #ff0000, #ff7f00, #ffff00, #00ff00, #0000ff, #4b0082, #9400d3)');
+          textStyles.push('-webkit-background-clip: text');
+          textStyles.push('-webkit-text-fill-color: transparent');
+          textStyles.push('background-size: 200% auto');
+          textStyles.push('animation: rainbow 3s linear infinite');
+          break;
+      }
+      
+      return '<div class="text-content" style="' + textStyles.join(';') + '; display: flex; align-items: center; justify-content: center; text-align: center; padding: 10px;">' + textContent + '</div>';
+      
+    default:
+      return '';
+  }
+}
+
+function extractYouTubeId(url) {
+  var patterns = [
+    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
+    /youtube\.com\/watch\?.*v=([a-zA-Z0-9_-]{11})/
+  ];
+  for (var i = 0; i < patterns.length; i++) {
+    var match = url.match(patterns[i]);
+    if (match) return match[1];
+  }
+  return null;
+}
+
+function escapeHtml(text) {
+  if (!text) return '';
+  var div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// Drag & Drop / Resize
+function setupPreviewInteractions() {
+  var screen = document.getElementById('previewScreen');
+  
+  screen.addEventListener('mousedown', handleStart);
+  document.addEventListener('mousemove', handleMove);
+  document.addEventListener('mouseup', handleEnd);
+  
+  screen.addEventListener('touchstart', handleTouchStart, { passive: false });
+  document.addEventListener('touchmove', handleTouchMove, { passive: false });
+  document.addEventListener('touchend', handleEnd);
+  
+  screen.addEventListener('click', function(e) {
+    if (e.target === screen) {
+      selectedSourceId = null;
+      renderSources();
+      updatePropertiesPanel();
+      renderPreview();
+    }
+  });
+}
+
+function handleStart(e) {
+  var item = e.target.closest('.preview-item');
+  var handle = e.target.closest('.resize-handle');
+  
+  if (handle) {
+    isResizing = true;
+    resizeStart.handle = handle.dataset.resize;
+    var rect = item.getBoundingClientRect();
+    var screenRect = document.getElementById('previewScreen').getBoundingClientRect();
+    resizeStart.x = e.clientX;
+    resizeStart.y = e.clientY;
+    resizeStart.w = rect.width;
+    resizeStart.h = rect.height;
+    resizeStart.left = rect.left - screenRect.left;
+    resizeStart.top = rect.top - screenRect.top;
+    draggedSourceId = item.dataset.sourceId;
+    e.preventDefault();
+    e.stopPropagation();
+  } else if (item) {
+    isDragging = true;
+    var rect = item.getBoundingClientRect();
+    dragOffset.x = e.clientX - rect.left;
+    dragOffset.y = e.clientY - rect.top;
+    draggedSourceId = item.dataset.sourceId;
+    selectSource(draggedSourceId);
+    e.preventDefault();
+  }
+}
+
+function handleTouchStart(e) {
+  var touch = e.touches[0];
+  var item = e.target.closest('.preview-item');
+  var handle = e.target.closest('.resize-handle');
+  
+  if (handle) {
+    isResizing = true;
+    resizeStart.handle = handle.dataset.resize;
+    var rect = item.getBoundingClientRect();
+    var screenRect = document.getElementById('previewScreen').getBoundingClientRect();
+    resizeStart.x = touch.clientX;
+    resizeStart.y = touch.clientY;
+    resizeStart.w = rect.width;
+    resizeStart.h = rect.height;
+    resizeStart.left = rect.left - screenRect.left;
+    resizeStart.top = rect.top - screenRect.top;
+    draggedSourceId = item.dataset.sourceId;
+    e.preventDefault();
+  } else if (item) {
+    isDragging = true;
+    var rect = item.getBoundingClientRect();
+    dragOffset.x = touch.clientX - rect.left;
+    dragOffset.y = touch.clientY - rect.top;
+    draggedSourceId = item.dataset.sourceId;
+    selectSource(draggedSourceId);
+    e.preventDefault();
+  }
+}
+
+function handleMove(e) {
+  if (!isDragging && !isResizing) return;
+  
+  var screen = document.getElementById('previewScreen');
+  var screenRect = screen.getBoundingClientRect();
+  
+  if (isDragging && draggedSourceId) {
+    var x = ((e.clientX - screenRect.left - dragOffset.x) / screenRect.width) * 100;
+    var y = ((e.clientY - screenRect.top - dragOffset.y) / screenRect.height) * 100;
+    
+    x = Math.max(0, Math.min(95, x));
+    y = Math.max(0, Math.min(95, y));
+    
+    updateSourcePosition(draggedSourceId, x, y);
+  }
+  
+  if (isResizing && draggedSourceId) {
+    var dx = e.clientX - resizeStart.x;
+    var dy = e.clientY - resizeStart.y;
+    
+    var newW = resizeStart.w;
+    var newH = resizeStart.h;
+    var newX = resizeStart.left;
+    var newY = resizeStart.top;
+    
+    switch(resizeStart.handle) {
+      case 'se':
+        newW = resizeStart.w + dx;
+        newH = resizeStart.h + dy;
+        break;
+      case 'sw':
+        newW = resizeStart.w - dx;
+        newH = resizeStart.h + dy;
+        newX = resizeStart.left + dx;
+        break;
+      case 'ne':
+        newW = resizeStart.w + dx;
+        newH = resizeStart.h - dy;
+        newY = resizeStart.top + dy;
+        break;
+      case 'nw':
+        newW = resizeStart.w - dx;
+        newH = resizeStart.h - dy;
+        newX = resizeStart.left + dx;
+        newY = resizeStart.top + dy;
+        break;
+    }
+    
+    var wPct = (newW / screenRect.width) * 100;
+    var hPct = (newH / screenRect.height) * 100;
+    var xPct = (newX / screenRect.width) * 100;
+    var yPct = (newY / screenRect.height) * 100;
+    
+    updateSourceSize(draggedSourceId, Math.max(5, wPct), Math.max(5, hPct), xPct, yPct);
+  }
+}
+
+function handleTouchMove(e) {
+  if (!isDragging && !isResizing) return;
+  e.preventDefault();
+  
+  var touch = e.touches[0];
+  var screen = document.getElementById('previewScreen');
+  var screenRect = screen.getBoundingClientRect();
+  
+  if (isDragging && draggedSourceId) {
+    var x = ((touch.clientX - screenRect.left - dragOffset.x) / screenRect.width) * 100;
+    var y = ((touch.clientY - screenRect.top - dragOffset.y) / screenRect.height) * 100;
+    
+    x = Math.max(0, Math.min(95, x));
+    y = Math.max(0, Math.min(95, y));
+    
+    updateSourcePosition(draggedSourceId, x, y);
+  }
+  
+  if (isResizing && draggedSourceId) {
+    var dx = touch.clientX - resizeStart.x;
+    var dy = touch.clientY - resizeStart.y;
+    
+    var newW = resizeStart.w;
+    var newH = resizeStart.h;
+    var newX = resizeStart.left;
+    var newY = resizeStart.top;
+    
+    switch(resizeStart.handle) {
+      case 'se':
+        newW = resizeStart.w + dx;
+        newH = resizeStart.h + dy;
+        break;
+      case 'sw':
+        newW = resizeStart.w - dx;
+        newH = resizeStart.h + dy;
+        newX = resizeStart.left + dx;
+        break;
+      case 'ne':
+        newW = resizeStart.w + dx;
+        newH = resizeStart.h - dy;
+        newY = resizeStart.top + dy;
+        break;
+      case 'nw':
+        newW = resizeStart.w - dx;
+        newH = resizeStart.h - dy;
+        newX = resizeStart.left + dx;
+        newY = resizeStart.top + dy;
+        break;
+    }
+    
+    var wPct = (newW / screenRect.width) * 100;
+    var hPct = (newH / screenRect.height) * 100;
+    var xPct = (newX / screenRect.width) * 100;
+    var yPct = (newY / screenRect.height) * 100;
+    
+    updateSourceSize(draggedSourceId, Math.max(5, wPct), Math.max(5, hPct), xPct, yPct);
+  }
+}
+
+function handleEnd() {
+  isDragging = false;
+  isResizing = false;
+  draggedSourceId = null;
+}
+
+function updateSourcePosition(sourceId, x, y) {
+  var activeScene = scenes.find(function(s) { return s.id === activeSceneId; });
+  if (!activeScene) return;
+  
+  var sourceIndex = activeScene.sources.findIndex(function(s) { return s.id === sourceId; });
+  if (sourceIndex === -1) return;
+  
+  activeScene.sources[sourceIndex].x = x;
+  activeScene.sources[sourceIndex].y = y;
+  
+  var item = document.getElementById('preview-' + sourceId);
+  if (item) {
+    item.style.left = x + '%';
+    item.style.top = y + '%';
+  }
+  
+  debouncedFirebaseSave(function() {
+    database.ref('stream/scenes/' + activeSceneId + '/sources/' + sourceIndex).update({ x: x, y: y });
+  });
+  updatePropertiesPanel();
+}
+
+function updateSourceSize(sourceId, width, height, x, y) {
+  var activeScene = scenes.find(function(s) { return s.id === activeSceneId; });
+  if (!activeScene) return;
+  
+  var sourceIndex = activeScene.sources.findIndex(function(s) { return s.id === sourceId; });
+  if (sourceIndex === -1) return;
+  
+  activeScene.sources[sourceIndex].width = width;
+  activeScene.sources[sourceIndex].height = height;
+  if (x !== undefined) activeScene.sources[sourceIndex].x = x;
+  if (y !== undefined) activeScene.sources[sourceIndex].y = y;
+  
+  var item = document.getElementById('preview-' + sourceId);
+  if (item) {
+    item.style.width = width + '%';
+    item.style.height = height + '%';
+    if (x !== undefined) item.style.left = x + '%';
+    if (y !== undefined) item.style.top = y + '%';
+  }
+  
+  debouncedFirebaseSave(function() {
+    database.ref('stream/scenes/' + activeSceneId + '/sources/' + sourceIndex).update({ width: width, height: height, x: x, y: y });
+  });
+  updatePropertiesPanel();
+}
+
+// Properties Panel
+function updatePropertiesPanel() {
+  var container = document.getElementById('propertiesContent');
+  var activeScene = scenes.find(function(s) { return s.id === activeSceneId; });
+  
+  if (!selectedSourceId || !activeScene) {
+    container.innerHTML = '<div style="text-align: center; padding: 30px 15px; color: var(--text-muted);"><div style="font-size: 32px; margin-bottom: 10px;">📋</div><div style="font-size: 13px;">Pilih source untuk edit</div></div>';
+    return;
+  }
+  
+  var source = activeScene.sources.find(function(s) { return s.id === selectedSourceId; });
+  if (!source) {
+    selectedSourceId = null;
+    updatePropertiesPanel();
+    return;
+  }
+  
+  var html = '<div class="prop-group">' +
+             '<label class="prop-label">Posisi & Ukuran</label>' +
+             '<div class="prop-row">' +
+             '<input type="number" class="prop-input" value="' + Math.round(source.x) + '" ' +
+             'onchange="updateSourceProp(\'' + source.id + '\', \'x\', this.value)" placeholder="X %">' +
+             '<input type="number" class="prop-input" value="' + Math.round(source.y) + '" ' +
+             'onchange="updateSourceProp(\'' + source.id + '\', \'y\', this.value)" placeholder="Y %">' +
+             '</div>' +
+             '<div class="prop-row" style="margin-top: 8px;">' +
+             '<input type="number" class="prop-input" value="' + Math.round(source.width) + '" ' +
+             'onchange="updateSourceProp(\'' + source.id + '\', \'width\', this.value)" placeholder="Width %">' +
+             '<input type="number" class="prop-input" value="' + Math.round(source.height) + '" ' +
+             'onchange="updateSourceProp(\'' + source.id + '\', \'height\', this.value)" placeholder="Height %">' +
+             '</div></div>';
+  
+  if (source.type === 'text') {
+    html += '<div class="prop-group">' +
+            '<label class="prop-label">Teks</label>' +
+            '<input type="text" class="prop-input" value="' + escapeHtml(source.text || '') + '" ' +
+            'onchange="updateSourceProp(\'' + source.id + '\', \'text\', this.value)">' +
+            '</div>' +
+            '<div class="prop-group">' +
+            '<label class="prop-label">Jenis</label>' +
+            '<select class="prop-select" onchange="updateSourceProp(\'' + source.id + '\', \'textType\', this.value)">' +
+            '<option value="static" ' + (source.textType === 'static' ? 'selected' : '') + '>Statis</option>' +
+            '<option value="scrolling" ' + (source.textType === 'scrolling' ? 'selected' : '') + '>Berjalan</option>' +
+            '<option value="blink" ' + (source.textType === 'blink' ? 'selected' : '') + '>Berkedip</option>' +
+            '<option value="glow" ' + (source.textType === 'glow' ? 'selected' : '') + '>Glow</option>' +
+            '<option value="rainbow" ' + (source.textType === 'rainbow' ? 'selected' : '') + '>Rainbow</option>' +
+            '</select></div>' +
+            '<div class="prop-group">' +
+            '<label class="prop-label">Ukuran Font</label>' +
+            '<select class="prop-select" onchange="updateSourceProp(\'' + source.id + '\', \'fontSize\', this.value)">' +
+            '<option value="16" ' + (source.fontSize === '16' ? 'selected' : '') + '>16px</option>' +
+            '<option value="24" ' + (source.fontSize === '24' ? 'selected' : '') + '>24px</option>' +
+            '<option value="32" ' + (source.fontSize === '32' ? 'selected' : '') + '>32px</option>' +
+            '<option value="48" ' + (source.fontSize === '48' ? 'selected' : '') + '>48px</option>' +
+            '<option value="64" ' + (source.fontSize === '64' ? 'selected' : '') + '>64px</option>' +
+            '<option value="96" ' + (source.fontSize === '96' ? 'selected' : '') + '>96px</option>' +
+            '</select></div>' +
+            '<div class="prop-group">' +
+            '<label class="prop-label">Warna</label>' +
+            '<input type="color" class="prop-input" value="' + (source.color || '#ffffff') + '" ' +
+            'onchange="updateSourceProp(\'' + source.id + '\', \'color\', this.value)">' +
+            '</div>';
+  }
+  
+  html += '<div class="prop-group">' +
+          '<label class="prop-checkbox">' +
+          '<input type="checkbox" ' + (source.hidden ? '' : 'checked') + ' ' +
+          'onchange="updateSourceProp(\'' + source.id + '\', \'hidden\', !this.checked)">' +
+          '<span>Visible</span></label></div>';
+  
+  container.innerHTML = html;
+}
+
+function updateSourceProp(sourceId, prop, value) {
+  var activeScene = scenes.find(function(s) { return s.id === activeSceneId; });
+  if (!activeScene) return;
+  
+  var sourceIndex = activeScene.sources.findIndex(function(s) { return s.id === sourceId; });
+  if (sourceIndex === -1) return;
+  
+  activeScene.sources[sourceIndex][prop] = value;
+  database.ref('stream/scenes/' + activeSceneId + '/sources/' + sourceIndex + '/' + prop).set(value);
+  
+  renderPreview();
+  renderSources();
+}
+
+// Utilities
+function closeModal(modalId) {
+  document.getElementById(modalId).classList.remove('active');
+}
+
+function showToast(message) {
+  var toast = document.getElementById('toast');
+  toast.textContent = message;
+  toast.classList.add('show');
+  setTimeout(function() { toast.classList.remove('show'); }, 3000);
+}
+
+// Init
+document.addEventListener('DOMContentLoaded', init);
+</script>
+
+<style>
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+  @keyframes rainbow {
+    0% { background-position: 0% 50%; }
+    100% { background-position: 200% 50%; }
+  }
+</style>
+
+</body>
+</html>
